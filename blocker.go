@@ -61,7 +61,7 @@ func NewBlocker(file string, logger *zap.Logger) *IptablesBlocker {
 }
 
 func blockIp(tables *iptables.IPTables, ip net.IP) error {
-	return tables.Append("filter", "input", "--src", ip.String(), "-j", "DROP")
+	return tables.Append("filter", "INPUT", "--src", ip.String(), "-j", "DROP")
 }
 
 func (b *IptablesBlocker) Block(ipv4 net.IP) {
