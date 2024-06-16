@@ -61,6 +61,36 @@ type blackListWriter struct {
 	wroteHeader bool
 }
 
+func (bw *blackListWriter) blockUnauthorized() {
+	ipStr, _, err := net.SplitHostPort(bw.req.RemoteAddr)
+	if err != nil {
+		bw.handler.logger.Error("invalid remote addr", zap.String("ip", bw.req.RemoteAddr))
+		return
+	}
+	ip := net.ParseIP(ipStr)
+	if ip == nil {
+		bw.handler.logger.Error("invalid ip", zap.String("ip", ipStr))
+		return
+	}
+
+	if ip.IsLoopback() || ip.IsPrivate() {
+		return
+	}
+
+	if c, ok := bw.handler.counter.Load(ipStr); ok {
+		counter := c.(int) + 1
+		if counter >= bw.handler.Threshold {
+			bw.handler.blocker.Block(ip)
+			bw.handler.logger.Info("blocked ip", zap.String("ip", ipStr))
+			bw.handler.counter.Delete(ipStr)
+		} else {
+			bw.handler.counter.Store(ipStr, counter)
+		}
+	} else {
+		bw.handler.counter.Store(ipStr, 1)
+	}
+}
+
 func (bw *blackListWriter) WriteHeader(status int) {
 	if bw.wroteHeader {
 		return
@@ -68,29 +98,7 @@ func (bw *blackListWriter) WriteHeader(status int) {
 	bw.wroteHeader = true
 
 	if status == http.StatusUnauthorized {
-		bw.handler.logger.Info("unauthorized request", zap.String("ip", bw.req.RemoteAddr))
-		ipStr, _, err := net.SplitHostPort(bw.req.RemoteAddr)
-		if err != nil {
-			ip := net.ParseIP(ipStr)
-			if ip != nil {
-				if !ip.IsLoopback() && !ip.IsPrivate() {
-					if c, ok := bw.handler.counter.Load(ipStr); ok {
-						counter := c.(int) + 1
-						if counter >= bw.handler.Threshold {
-							bw.handler.blocker.Block(ip)
-							bw.handler.logger.Info("blocked ip", zap.String("ip", ipStr))
-							bw.handler.counter.Delete(ipStr)
-						} else {
-							bw.handler.counter.Store(ipStr, counter)
-						}
-					} else {
-						bw.handler.counter.Store(ipStr, 1)
-					}
-				}
-			} else {
-				bw.handler.logger.Error("invalid ip", zap.String("ip", ipStr))
-			}
-		}
+		bw.blockUnauthorized()
 	}
 
 	bw.ResponseWriterWrapper.WriteHeader(status)
