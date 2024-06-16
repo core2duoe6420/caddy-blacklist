@@ -68,6 +68,7 @@ func (bw *blackListWriter) WriteHeader(status int) {
 	bw.wroteHeader = true
 
 	if status == http.StatusUnauthorized {
+		bw.handler.logger.Info("unauthorized request", zap.String("ip", bw.req.RemoteAddr))
 		ipStr, _, err := net.SplitHostPort(bw.req.RemoteAddr)
 		if err != nil {
 			ip := net.ParseIP(ipStr)
@@ -78,6 +79,7 @@ func (bw *blackListWriter) WriteHeader(status int) {
 						if counter >= bw.handler.Threshold {
 							bw.handler.blocker.Block(ip)
 							bw.handler.logger.Info("blocked ip", zap.String("ip", ipStr))
+							bw.handler.counter.Delete(ipStr)
 						} else {
 							bw.handler.counter.Store(ipStr, counter)
 						}
